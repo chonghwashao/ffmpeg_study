@@ -24,7 +24,7 @@ void PlayWidget::paintEvent(QPaintEvent *event)
     if (mImage.size().width() <= 0) return;
 
     ///将图像按比例缩放成和窗口一样大小
-    QImage img = mImage.scaled(this->size(),Qt::KeepAspectRatio);
+    QImage img = mImage.scaled(this->size(), Qt::IgnoreAspectRatio);
 
     int x = this->width() - img.width();
     int y = this->height() - img.height();
@@ -32,7 +32,7 @@ void PlayWidget::paintEvent(QPaintEvent *event)
     x /= 2;
     y /= 2;
 
-    painter.drawImage(QPoint(x,y),img); //画出图像
+    painter.drawImage(QPoint(0,0),img); //画出图像
 }
 
 void PlayWidget::slot_getOneFrame(QImage img)
