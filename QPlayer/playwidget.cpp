@@ -32,12 +32,11 @@ void PlayWidget::paintEvent(QPaintEvent *event)
     x /= 2;
     y /= 2;
 
-    painter.drawImage(QPoint(0,0),img); //画出图像
+    painter.drawImage(QPoint(x,y),img); //画出图像
 }
 
 void PlayWidget::slot_getOneFrame(QImage img)
 {
-    Q_UNUSED(img);
     mImage = img;
     update(); //调用update将执行 paintEvent函数
 }

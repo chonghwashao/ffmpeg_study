@@ -2,6 +2,7 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include "audiorender.h"
 
 namespace Ui {
 class MainWindow;
@@ -17,7 +18,7 @@ public:
 
 private:
     Ui::MainWindow *ui;
-
+    QAudioRender m_audioRender;
     void initialize();
 };
 
