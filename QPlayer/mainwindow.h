@@ -3,7 +3,7 @@
 
 #include <QMainWindow>
 #include "audiorender.h"
-
+#include "qplayer.h"
 namespace Ui {
 class MainWindow;
 }
@@ -18,6 +18,7 @@ public:
 
 private:
     Ui::MainWindow *ui;
+    QPlayer m_thPlayer;
     QAudioRender m_audioRender;
     void initialize();
 };
