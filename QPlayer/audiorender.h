@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <QtCore/QThread>
 #define NUMBUFFERS 4 //音频缓冲个数
-class QPlayer;
+class QDecoder;
 typedef struct _tFrame
 {
     void* data;
@@ -30,7 +30,7 @@ typedef struct AudioParams {
 class QAudioRender : public QThread
 {
 public:
-    explicit QAudioRender(QPlayer & decoder);
+    explicit QAudioRender(QDecoder & decoder);
 
     static ALboolean initOpenAL();
     static ALboolean shutdownOpenAL();
@@ -51,7 +51,7 @@ public:
     ALuint		    m_buffers[NUMBUFFERS];
     unsigned long	ulFrequency;
     unsigned long	ulFormat;
-    QPlayer & m_decoder;
+    QDecoder & m_decoder;
 
 };
 

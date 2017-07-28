@@ -24,5 +24,5 @@ void MainWindow::initialize()
     m_thPlayer.setFileName("D:/Samples/Simpsons.mp4");
     connect(&m_thPlayer,SIGNAL(sig_getOneFrame(QImage)),ui->widget,SLOT(slot_getOneFrame(QImage)));
 
-    m_thPlayer.startPlay();
+    m_thPlayer.startDecode();
 }

@@ -23,22 +23,19 @@ extern "C"
 #define CPP_TIME_BASE_Q (AVRational{1, AV_TIME_BASE})
 
 static float newVolume = 1.0f;
-
 static int decoder_decode_frame(AVCodec *d, AVFrame *frame, AVSubtitle *sub);
+const unsigned int QDecoder::MAX_BUFF_SIZE = 128;
 
-///现在我们需要做的是让SaveFrame函数能把RGB信息定稿到一个PPM格式的文件中。
-///我们将生成一个简单的PPM格式文件，请相信，它是可以工作的。
-void SaveFrame(AVFrame *pFrame, int width, int height,int index);
-
-const int QPlayer::MAX_BUFF_SIZE = 128;
-QPlayer::QPlayer()
+QDecoder::QDecoder()
     : m_outSampleRate(44100)
     , m_outChs(2)
+    , m_videoIndex(-1)
+    , m_audioIndex(-1)
 {
 
 }
 
-QPlayer::~QPlayer()
+QDecoder::~QDecoder()
 {
     m_cond.notify_all();
 //    if(m_pDecode->joinable())
@@ -58,12 +55,12 @@ QPlayer::~QPlayer()
     }
 }
 
-void QPlayer::startPlay()
+void QDecoder::startDecode()
 {
     QThread::start();
 }
 
-PTFRAME QPlayer::getFrame()
+PTFRAME QDecoder::getFrame()
 {
     PTFRAME frame = nullptr;
     std::unique_lock<std::mutex> lck(m_mtx);
@@ -79,7 +76,7 @@ PTFRAME QPlayer::getFrame()
     return frame;
 }
 
-void QPlayer::run()
+void QDecoder::run()
 {
     std::string file_path = m_fileName.toLocal8Bit().data();
     av_register_all();
@@ -102,8 +99,6 @@ void QPlayer::run()
 
     ///循环查找视频中包含的流信息，直到找到视频类型的流
     ///便将其记录下来 保存到videoStream变量中
-    ///这里我们现在只处理视频流  音频流先不管他
-    int videoStream(-1), audioStream(-1);
     AVCodecContext *vCodecCtx = avcodec_alloc_context3(NULL);
     AVCodecContext *aCodecCtx = avcodec_alloc_context3(NULL);
     if (!vCodecCtx || !aCodecCtx)
@@ -116,14 +111,14 @@ void QPlayer::run()
     {
         ///或者使用接口avcodec_parameters_to_context填充到context中使用
         AVMediaType codec_type = pFormatCtx->streams[i]->codecpar->codec_type;
-        if(codec_type== AVMEDIA_TYPE_VIDEO && videoStream < 0)
+        if(codec_type== AVMEDIA_TYPE_VIDEO && m_videoIndex < 0)
         {
-            videoStream = i;
+            m_videoIndex = i;
             ret = avcodec_parameters_to_context(vCodecCtx, pFormatCtx->streams[i]->codecpar);
         }
-        else if(codec_type == AVMEDIA_TYPE_AUDIO && audioStream < 0)
+        else if(codec_type == AVMEDIA_TYPE_AUDIO && m_audioIndex < 0)
         {
-            audioStream = i;
+            m_audioIndex = i;
             ret = avcodec_parameters_to_context(aCodecCtx, pFormatCtx->streams[i]->codecpar);
         }
         else if(pFormatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE)
@@ -133,7 +128,7 @@ void QPlayer::run()
     }
 
     ///如果videoStream为-1 说明没有找到视频流
-    if (videoStream == -1) {
+    if (m_videoIndex == -1) {
         av_log(NULL, AV_LOG_FATAL, "Could not find video stream.\n");
         return;
     }
@@ -201,7 +196,7 @@ void QPlayer::run()
     av_new_packet(packet, y_size); //分配packet的数据
     //av_dump_format(pFormatCtx, 0, file_path, 0);
 
-    while(1)
+    for(;;)
     {
         static bool isQuit = false;
         if(isQuit)
@@ -213,7 +208,7 @@ void QPlayer::run()
             break;
         }
 
-        if (packet->stream_index == videoStream)
+        if (packet->stream_index == m_videoIndex)
         {
             int ret = decoder_decode_frame(vCodecCtx, packet, pFrame, NULL);
             if(ret >= 0)
@@ -228,7 +223,7 @@ void QPlayer::run()
                 emit sig_getOneFrame(image);  //发送信号
             }
         }
-        else if(packet->stream_index == audioStream)
+        else if(packet->stream_index == m_audioIndex)
         {
             int ret = decoder_decode_frame(aCodecCtx, packet, pFrame, NULL);
             if(ret >= 0)
@@ -236,8 +231,8 @@ void QPlayer::run()
                 PTFRAME frame = new TFRAME;
                 frame->chs = m_outChs;
                 frame->samplerate = m_outSampleRate;
-                frame->duration = av_rescale_q(packet->duration, pFormatCtx->streams[audioStream]->time_base, CPP_TIME_BASE_Q);
-                frame->pts = av_rescale_q(packet->pts, pFormatCtx->streams[audioStream]->time_base, CPP_TIME_BASE_Q);
+                frame->duration = av_rescale_q(packet->duration, pFormatCtx->streams[m_audioIndex]->time_base, CPP_TIME_BASE_Q);
+                frame->pts = av_rescale_q(packet->pts, pFormatCtx->streams[m_audioIndex]->time_base, CPP_TIME_BASE_Q);
 
                 //resample
                 int outSizeCandidate = m_outSampleRate * 8 *
@@ -270,7 +265,7 @@ void QPlayer::run()
         }
 
         av_packet_unref(packet);
-        msleep(0);
+        msleep(10);
     }
 
     av_free(out_buffer);
@@ -280,38 +275,11 @@ void QPlayer::run()
     avformat_close_input(&pFormatCtx);
 }
 
-void SaveFrame(AVFrame *pFrame, int width, int height,int index)
-{
-
-  FILE *pFile;
-  char szFilename[32];
-  int  y;
-
-  // Open file
-  sprintf(szFilename, "frame%d.ppm", index);
-  pFile=fopen(szFilename, "wb");
-
-  if(pFile==NULL)
-    return;
-
-  // Write header
-  fprintf(pFile, "P6\n%d %d\n255\n", width, height);
-
-  // Write pixel data
-  for(y=0; y<height; y++)
-  {
-    fwrite(pFrame->data[0]+y*pFrame->linesize[0], 1, width*3, pFile);
-  }
-
-  // Close file
-  fclose(pFile);
-}
-
-
-int QPlayer::decoder_decode_frame(AVCodecContext *avctx, AVPacket *pkt, AVFrame *frame, AVSubtitle *sub) {
+int QDecoder::decoder_decode_frame(AVCodecContext *avctx, AVPacket *pkt, AVFrame *frame, AVSubtitle *sub) {
     int ret = AVERROR(EAGAIN);
     static int packet_pending = false;
-    for (;;) {
+    for (;;)
+    {
         AVPacket _pkt;
         //av_packet_move_ref(&_pkt, pkt);
 

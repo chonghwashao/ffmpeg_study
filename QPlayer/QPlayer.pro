@@ -24,7 +24,8 @@ HEADERS  += mainwindow.h \
     qplayer.h \
     playwidget.h \
     audiorender.h \
-    aldlist.h
+    aldlist.h \
+    utils.h
 
 FORMS    += mainwindow.ui \
     playwidget.ui

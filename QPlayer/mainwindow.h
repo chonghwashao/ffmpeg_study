@@ -18,7 +18,7 @@ public:
 
 private:
     Ui::MainWindow *ui;
-    QPlayer m_thPlayer;
+    QDecoder m_thPlayer;
     QAudioRender m_audioRender;
     void initialize();
 };

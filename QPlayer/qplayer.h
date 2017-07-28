@@ -14,15 +14,15 @@ struct AVPacket;
 struct AVSubtitle;
 struct AudioParams;
 
-class QPlayer : public QThread
+class QDecoder : public QThread
 {
     Q_OBJECT
 public:
-    explicit QPlayer();
-    ~QPlayer();
+    explicit QDecoder();
+    ~QDecoder();
 
     void setFileName(QString path){ m_fileName = path; }
-    void startPlay();
+    void startDecode();
 
     PTFRAME getFrame();
 
@@ -41,13 +41,14 @@ signals:
 private:
     QString m_fileName;
 
+    int m_videoIndex, m_audioIndex;
     std::mutex m_mtx;
     std::condition_variable m_cond;
     std::queue<PTFRAME> m_queueData;
     int m_outSampleRate;
     int m_outChs;
     std::atomic_bool m_isShutdown;
-    static const int MAX_BUFF_SIZE;
+    static const unsigned int MAX_BUFF_SIZE;
 
 };
 

@@ -38,5 +38,5 @@ void PlayWidget::paintEvent(QPaintEvent *event)
 void PlayWidget::slot_getOneFrame(QImage img)
 {
     mImage = img;
-    update(); //调用update将执行 paintEvent函数
+    update();
 }

@@ -19,7 +19,7 @@ void ALFWprintf( const char* x, ... )
     va_end( args );
 }
 
-QAudioRender::QAudioRender(QPlayer & decoder)
+QAudioRender::QAudioRender(QDecoder & decoder)
     : m_pDevice(NULL)
     , ulFrequency(0)
     , ulFormat(0)
