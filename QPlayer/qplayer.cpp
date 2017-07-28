@@ -150,12 +150,6 @@ void QPlayer::run()
     }
 
     ///Set audio params
-//    AudioParams para;
-//    para.channels = aCodecCtx->channels;
-//    para.fmt = aCodecCtx->sample_fmt;
-//    para.freq = aCodecCtx->sample_rate;
-//    para.channel_layout = aCodecCtx->channel_layout;
-
     int64_t in_channel_layout = av_get_default_channel_layout(aCodecCtx->channels);
     struct SwrContext* au_convert_ctx = swr_alloc();
     int64_t outLayout;
@@ -221,11 +215,8 @@ void QPlayer::run()
 
         if (packet->stream_index == videoStream)
         {
-            avcodec_send_packet(vCodecCtx, packet);
-            int errCode = avcodec_receive_frame(vCodecCtx, pFrame);
-
-            switch (errCode) {
-            case 0://成功
+            int ret = decoder_decode_frame(vCodecCtx, packet, pFrame, NULL);
+            if(ret >= 0)
             {
                 sws_scale(img_convert_ctx,
                     (uint8_t const * const *)pFrame->data,
@@ -235,50 +226,32 @@ void QPlayer::run()
                 QImage tmpImg((uchar *)out_buffer,vCodecCtx->width,vCodecCtx->height,QImage::Format_RGB888);
                 QImage image = tmpImg.copy(); //把图像复制一份 传递给界面显示
                 emit sig_getOneFrame(image);  //发送信号
-                break;
-            }
-            case AVERROR_EOF:
-                //printf("the decoder has been fully flushed,and there will be no more output frames.\n");
-                break;
-
-            case AVERROR(EAGAIN):
-                //printf("Resource temporarily unavailable\n");
-                break;
-
-            case AVERROR(EINVAL):
-                printf("Invalid argument\n");
-                break;
-            default:
-                break;
             }
         }
         else if(packet->stream_index == audioStream)
         {
-            avcodec_send_packet(aCodecCtx, packet);
-            int errCode = avcodec_receive_frame(aCodecCtx, pFrame);
-            switch (errCode)
+            int ret = decoder_decode_frame(aCodecCtx, packet, pFrame, NULL);
+            if(ret >= 0)
             {
-                case 0:
-                {
-                    PTFRAME frame = new TFRAME;
-                    frame->chs = m_outChs;
-                    frame->samplerate = m_outSampleRate;
-                    frame->duration = av_rescale_q(packet->duration, pFormatCtx->streams[audioStream]->time_base, CPP_TIME_BASE_Q);
-                    frame->pts = av_rescale_q(packet->pts, pFormatCtx->streams[audioStream]->time_base, CPP_TIME_BASE_Q);
+                PTFRAME frame = new TFRAME;
+                frame->chs = m_outChs;
+                frame->samplerate = m_outSampleRate;
+                frame->duration = av_rescale_q(packet->duration, pFormatCtx->streams[audioStream]->time_base, CPP_TIME_BASE_Q);
+                frame->pts = av_rescale_q(packet->pts, pFormatCtx->streams[audioStream]->time_base, CPP_TIME_BASE_Q);
 
-                    //resample
-                    int outSizeCandidate = m_outSampleRate * 8 *
-                        double(frame->duration) / 1000000.0;
-                    uint8_t* convertData = (uint8_t*)av_malloc(sizeof(uint8_t)* outSizeCandidate);
-                    int out_samples = swr_convert(au_convert_ctx,
-                        &convertData, outSizeCandidate,
-                        (const uint8_t**)&pFrame->data[0], pFrame->nb_samples);
-                    int Audiobuffer_size = av_samples_get_buffer_size(NULL,
-                        m_outChs, out_samples, AV_SAMPLE_FMT_S16, 1);
-                    frame->data = convertData;
-                    frame->size = Audiobuffer_size;
-                    std::unique_lock<std::mutex> lck(m_mtx);
-                    m_cond.wait(lck, [this](){return m_queueData.size() < MAX_BUFF_SIZE;});
+                //resample
+                int outSizeCandidate = m_outSampleRate * 8 *
+                    double(frame->duration) / 1000000.0;
+                uint8_t* convertData = (uint8_t*)av_malloc(sizeof(uint8_t)* outSizeCandidate);
+                int out_samples = swr_convert(au_convert_ctx,
+                    &convertData, outSizeCandidate,
+                    (const uint8_t**)&pFrame->data[0], pFrame->nb_samples);
+                int Audiobuffer_size = av_samples_get_buffer_size(NULL,
+                    m_outChs, out_samples, AV_SAMPLE_FMT_S16, 1);
+                frame->data = convertData;
+                frame->size = Audiobuffer_size;
+                std::unique_lock<std::mutex> lck(m_mtx);
+                m_cond.wait(lck, [this](){return m_queueData.size() < MAX_BUFF_SIZE;});
 //                    if (m_bStop)
 //                    {
 //                        av_packet_unref(packet);
@@ -290,28 +263,14 @@ void QPlayer::run()
 //                        av_packet_unref(packet);
 //                        continue;
 //                    }
-                    m_queueData.push(frame);
-                    lck.unlock();
-                    m_cond.notify_one();
-                }
-                case AVERROR_EOF:
-//                    printf("the decoder has been fully flushed,and there will be no more output frames.\n");
-                    break;
-
-                case AVERROR(EAGAIN):
-//                    printf("Resource temporarily unavailable\n");
-                    break;
-
-                case AVERROR(EINVAL):
-//                    printf("Invalid argument\n");
-                    break;
-                default:
-                    break;
+                m_queueData.push(frame);
+                lck.unlock();
+                m_cond.notify_one();
             }
         }
-        msleep(5);
-        av_packet_unref(packet);
 
+        av_packet_unref(packet);
+        msleep(0);
     }
 
     av_free(out_buffer);
@@ -351,9 +310,10 @@ void SaveFrame(AVFrame *pFrame, int width, int height,int index)
 
 int QPlayer::decoder_decode_frame(AVCodecContext *avctx, AVPacket *pkt, AVFrame *frame, AVSubtitle *sub) {
     int ret = AVERROR(EAGAIN);
-
+    static int packet_pending = false;
     for (;;) {
         AVPacket _pkt;
+        //av_packet_move_ref(&_pkt, pkt);
 
 //        if (codecCtx->queue->serial == codecCtx->pkt_serial) {
         do {
@@ -398,10 +358,11 @@ int QPlayer::decoder_decode_frame(AVCodecContext *avctx, AVPacket *pkt, AVFrame 
 //        do {
 //            if (avctx->queue->nb_packets == 0)
 //                SDL_CondSignal(avctx->empty_queue_cond);
-//            if (avctx->packet_pending) {
-//                av_packet_move_ref(&pkt, &avctx->pkt);
-//                avctx->packet_pending = 0;
-//            } else {
+//            if (packet_pending) {
+//                av_packet_move_ref(pkt, &_pkt);
+//                packet_pending = 0;
+//            }
+//                else {
 //                if (packet_queue_get(avctx->queue, &pkt, 1, &avctx->pkt_serial) < 0)
 //                    return -1;
 //            }
@@ -426,13 +387,13 @@ int QPlayer::decoder_decode_frame(AVCodecContext *avctx, AVPacket *pkt, AVFrame 
                     ret = got_frame ? 0 : (_pkt.data ? AVERROR(EAGAIN) : AVERROR_EOF);
                 }
             } else {
-                if (avcodec_send_packet(avctx, &_pkt) == AVERROR(EAGAIN)) {
+                if (avcodec_send_packet(avctx, pkt) == AVERROR(EAGAIN)) {
                     av_log(avctx, AV_LOG_ERROR, "Receive_frame and send_packet both returned EAGAIN, which is an API violation.\n");
-//                    avctx->packet_pending = 1;
+                    packet_pending = 1;
                     av_packet_move_ref(pkt, &_pkt);
                 }
             }
-            av_packet_unref(&_pkt);
+            //av_packet_unref(&_pkt);
 //        }
     }
 }
